@@ -5,17 +5,18 @@ import { useRouter, usePathname } from "next/navigation";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const adminLoginPath = "/securedlink/login";
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("admin_token");
-      if (!token && pathname !== "/admin/login") {
-        router.replace("/admin/login");
+      if (!token && pathname !== adminLoginPath) {
+        router.replace(adminLoginPath);
       }
     }
-  }, [pathname, router]);
+  }, [pathname, router, adminLoginPath]);
 
-  if (pathname === "/admin/login") {
+  if (pathname === adminLoginPath) {
     return <>{children}</>;
   }
 
@@ -29,9 +30,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
         <nav className="flex-1 p-3 space-y-1">
           {[
-            { label: "Dashboard", href: "/admin" },
-            { label: "Orders", href: "/admin/orders" },
-            { label: "Shops", href: "/admin/shops" },
+            { label: "Dashboard", href: "/securedlink" },
+            { label: "Orders", href: "/securedlink/orders" },
+            { label: "Shops", href: "/securedlink/shops" },
           ].map(({ label, href }) => (
             <a
               key={href}
@@ -47,7 +48,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             className="w-full text-left text-sm text-red-500 hover:text-red-700 transition-colors"
             onClick={() => {
               localStorage.removeItem("admin_token");
-              window.location.href = "/admin/login";
+              window.location.href = adminLoginPath;
             }}
           >
             Sign Out

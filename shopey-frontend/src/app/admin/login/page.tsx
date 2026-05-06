@@ -43,7 +43,7 @@ export default function AdminLoginPage() {
       if (token) {
         localStorage.setItem("admin_token", token);
         toast.success("Welcome, Admin!");
-        router.push("/admin");
+        router.push("/securedlink");
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;

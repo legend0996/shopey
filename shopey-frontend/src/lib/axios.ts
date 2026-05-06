@@ -15,7 +15,7 @@ axiosInstance.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const path = window.location.pathname;
     const token =
-      path.startsWith("/admin")
+      path.startsWith("/securedlink") || path.startsWith("/admin")
         ? localStorage.getItem("admin_token")
         : path.startsWith("/rider")
           ? localStorage.getItem("rider_token")
@@ -33,7 +33,7 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status === 401) {
       if (typeof window !== "undefined") {
         const path = window.location.pathname;
-        if (path.startsWith("/admin")) {
+        if (path.startsWith("/securedlink") || path.startsWith("/admin")) {
           localStorage.removeItem("admin_token");
         } else if (path.startsWith("/rider")) {
           localStorage.removeItem("rider_token");

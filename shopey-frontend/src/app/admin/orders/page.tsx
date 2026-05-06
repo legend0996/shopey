@@ -38,7 +38,7 @@ export default function AdminOrdersPage() {
                     {new Date(order.created_at).toLocaleDateString("en-KE")}
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/admin/orders/${order.id}`} className="text-[#C9A14A] hover:underline text-xs font-medium">
+                    <Link href={`/securedlink/orders/${order.id}`} className="text-[#C9A14A] hover:underline text-xs font-medium">
                       View
                     </Link>
                   </td>

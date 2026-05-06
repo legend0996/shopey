@@ -6,6 +6,32 @@ const apiHost = apiUrl ? new URL(apiUrl).hostname : undefined;
 const apiProtocol: "http" | "https" = apiUrl?.startsWith("https") ? "https" : "http";
 
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/securedlink",
+        destination: "/admin",
+      },
+      {
+        source: "/securedlink/:path*",
+        destination: "/admin/:path*",
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      {
+        source: "/admin",
+        destination: "/securedlink",
+        permanent: true,
+      },
+      {
+        source: "/admin/:path*",
+        destination: "/securedlink/:path*",
+        permanent: true,
+      },
+    ];
+  },
   turbopack: {
     root: path.resolve(__dirname),
   },
