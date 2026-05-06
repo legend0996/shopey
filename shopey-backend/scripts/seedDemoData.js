@@ -466,6 +466,7 @@ async function run() {
 
   const productColumns = await getColumns('products');
   const hasProductImages = await tableExists('product_images');
+  const productImageColumns = hasProductImages ? await getColumns('product_images') : new Set();
   const productIdsByName = new Map();
 
   const categoryMap = new Map();
@@ -554,10 +555,18 @@ async function run() {
 
     if (hasProductImages) {
       await pool.query(`DELETE FROM product_images WHERE product_id = $1`, [productId]);
+      const imageCols = ['product_id', 'image_url'];
+      const imageVals = [productId, item.image];
+
+      if (productImageColumns.has('is_thumbnail')) {
+        imageCols.push('is_thumbnail');
+        imageVals.push(true);
+      }
+
+      const imagePlaceholders = imageVals.map((_, i) => `$${i + 1}`).join(', ');
       await pool.query(
-        `INSERT INTO product_images (product_id, image_url, is_thumbnail)
-         VALUES ($1, $2, TRUE)`,
-        [productId, item.image]
+        `INSERT INTO product_images (${imageCols.join(', ')}) VALUES (${imagePlaceholders})`,
+        imageVals
       );
     }
 
