@@ -1,0 +1,16 @@
+{
+  "name": "shopey",
+  "private": true,
+  "workspaces": [
+    "shopey-backend",
+    "shopey-frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace shopey-backend",
+    "dev:frontend": "npm run dev --workspace shopey-frontend",
+    "start:backend": "npm run start --workspace shopey-backend",
+    "start:frontend": "npm run start --workspace shopey-frontend",
+    "build:frontend": "npm run build --workspace shopey-frontend",
+    "lint:frontend": "npm run lint --workspace shopey-frontend"
+  }
+}
