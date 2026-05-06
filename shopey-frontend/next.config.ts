@@ -21,6 +21,14 @@ const nextConfig: NextConfig = {
         hostname: "127.0.0.1",
         port: "5000",
       },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+      {
+        protocol: "https",
+        hostname: "source.unsplash.com",
+      },
       ...(apiHost
         ? [
             {
