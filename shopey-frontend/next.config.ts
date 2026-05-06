@@ -3,7 +3,7 @@ import path from "path";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 const apiHost = apiUrl ? new URL(apiUrl).hostname : undefined;
-const apiProtocol = apiUrl?.startsWith("https") ? "https" : "http";
+const apiProtocol: "http" | "https" = apiUrl?.startsWith("https") ? "https" : "http";
 
 const nextConfig: NextConfig = {
   turbopack: {
