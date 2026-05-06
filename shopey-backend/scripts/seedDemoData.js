@@ -1,5 +1,6 @@
 require('dotenv').config();
 const pool = require('../src/config/db');
+const bcrypt = require('bcrypt');
 
 const categories = ['Electronics', 'Fashion', 'Food', 'Beauty', 'Home', 'Sports'];
 
@@ -132,6 +133,25 @@ const products = [
   },
 ];
 
+const demoUsers = [
+  { email: 'alice.demo@shopey.co.ke', phone: '0711000001', password: 'User@1234' },
+  { email: 'brian.demo@shopey.co.ke', phone: '0711000002', password: 'User@1234' },
+  { email: 'carol.demo@shopey.co.ke', phone: '0711000003', password: 'User@1234' },
+];
+
+const demoRiders = [
+  { name: 'Kevin Rider', phone: '0799000001', password: 'Rider@1234' },
+  { name: 'Martha Rider', phone: '0799000002', password: 'Rider@1234' },
+];
+
+const demoReviews = [
+  { product: 'Apple MacBook Air M2', rating: 5, comment: 'Excellent performance and battery life.' },
+  { product: 'Sony WH-1000XM5 Headphones', rating: 5, comment: 'Noise cancellation is top tier.' },
+  { product: 'Minimalist White Sneakers', rating: 4, comment: 'Very comfortable for daily wear.' },
+  { product: 'Hydrating Face Serum', rating: 4, comment: 'Light texture and good hydration.' },
+  { product: 'Yoga Mat Pro', rating: 5, comment: 'Great grip and cushioning.' },
+];
+
 async function getColumns(tableName) {
   const result = await pool.query(
     `SELECT column_name
@@ -152,11 +172,301 @@ async function tableExists(tableName) {
   return Boolean(result.rows[0]?.regclass);
 }
 
+async function seedUsers() {
+  if (!(await tableExists('users'))) {
+    console.log('Skipping users: table not found');
+    return [];
+  }
+
+  const columns = await getColumns('users');
+  if (!columns.has('email') || !columns.has('phone') || !columns.has('password')) {
+    console.log('Skipping users: required columns missing');
+    return [];
+  }
+
+  const userIds = [];
+
+  for (const user of demoUsers) {
+    const existing = await pool.query(`SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [user.email]);
+    const hashed = await bcrypt.hash(user.password, 10);
+
+    if (existing.rows.length) {
+      const id = existing.rows[0].id;
+      await pool.query(`UPDATE users SET phone = $1, password = $2 WHERE id = $3`, [user.phone, hashed, id]);
+
+      if (columns.has('is_verified')) {
+        await pool.query(`UPDATE users SET is_verified = TRUE WHERE id = $1`, [id]);
+      }
+
+      userIds.push(id);
+      continue;
+    }
+
+    const insertCols = ['email', 'phone', 'password'];
+    const insertVals = [user.email, user.phone, hashed];
+
+    if (columns.has('is_verified')) {
+      insertCols.push('is_verified');
+      insertVals.push(true);
+    }
+
+    const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(', ');
+    const inserted = await pool.query(
+      `INSERT INTO users (${insertCols.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+      insertVals
+    );
+
+    userIds.push(inserted.rows[0].id);
+  }
+
+  return userIds;
+}
+
+async function seedRiders() {
+  if (!(await tableExists('riders'))) {
+    console.log('Skipping riders: table not found');
+    return [];
+  }
+
+  const columns = await getColumns('riders');
+  if (!columns.has('phone') || !columns.has('password')) {
+    console.log('Skipping riders: required columns missing');
+    return [];
+  }
+
+  const riderIds = [];
+
+  for (const rider of demoRiders) {
+    const existing = await pool.query(`SELECT id FROM riders WHERE phone = $1 LIMIT 1`, [rider.phone]);
+    const hashed = await bcrypt.hash(rider.password, 10);
+
+    if (existing.rows.length) {
+      const id = existing.rows[0].id;
+      await pool.query(`UPDATE riders SET password = $1 WHERE id = $2`, [hashed, id]);
+
+      if (columns.has('name')) {
+        await pool.query(`UPDATE riders SET name = $1 WHERE id = $2`, [rider.name, id]);
+      }
+
+      riderIds.push(id);
+      continue;
+    }
+
+    const insertCols = [];
+    const insertVals = [];
+
+    if (columns.has('name')) {
+      insertCols.push('name');
+      insertVals.push(rider.name);
+    }
+
+    insertCols.push('phone', 'password');
+    insertVals.push(rider.phone, hashed);
+
+    const placeholders = insertVals.map((_, i) => `$${i + 1}`).join(', ');
+    const inserted = await pool.query(
+      `INSERT INTO riders (${insertCols.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+      insertVals
+    );
+
+    riderIds.push(inserted.rows[0].id);
+  }
+
+  return riderIds;
+}
+
+async function seedOrdersAndDeliveries(userIds, riderIds, productIdsByName) {
+  const hasOrders = await tableExists('orders');
+  const hasOrderItems = await tableExists('order_items');
+  const hasDeliveries = await tableExists('deliveries');
+
+  if (!hasOrders || !hasOrderItems) {
+    console.log('Skipping orders: orders/order_items tables not found');
+    return;
+  }
+
+  if (!userIds.length) {
+    console.log('Skipping orders: no demo users available');
+    return;
+  }
+
+  const ordersColumns = await getColumns('orders');
+  const deliveriesColumns = hasDeliveries ? await getColumns('deliveries') : new Set();
+
+  const selectedProducts = [
+    ['Apple MacBook Air M2', 1],
+    ['Minimalist White Sneakers', 2],
+    ['Yoga Mat Pro', 1],
+  ]
+    .map(([name, quantity]) => ({ productId: productIdsByName.get(name), quantity }))
+    .filter((item) => Boolean(item.productId));
+
+  if (!selectedProducts.length) {
+    console.log('Skipping orders: no products found for order seed');
+    return;
+  }
+
+  const orderCode = `DEMO-${Date.now()}`;
+  const userId = userIds[0];
+
+  let total = 0;
+  for (const item of selectedProducts) {
+    const p = await pool.query(`SELECT price FROM products WHERE id = $1`, [item.productId]);
+    total += Number(p.rows[0]?.price || 0) * item.quantity;
+  }
+
+  const orderCols = [];
+  const orderVals = [];
+
+  if (ordersColumns.has('order_code')) {
+    orderCols.push('order_code');
+    orderVals.push(orderCode);
+  }
+  if (ordersColumns.has('user_id')) {
+    orderCols.push('user_id');
+    orderVals.push(userId);
+  }
+  if (ordersColumns.has('total_amount')) {
+    orderCols.push('total_amount');
+    orderVals.push(total);
+  }
+  if (ordersColumns.has('delivery_fee')) {
+    orderCols.push('delivery_fee');
+    orderVals.push(250);
+  }
+  if (ordersColumns.has('final_amount')) {
+    orderCols.push('final_amount');
+    orderVals.push(total + 250);
+  }
+  if (ordersColumns.has('county')) {
+    orderCols.push('county');
+    orderVals.push('Nairobi');
+  }
+  if (ordersColumns.has('town')) {
+    orderCols.push('town');
+    orderVals.push('Westlands');
+  }
+  if (ordersColumns.has('description')) {
+    orderCols.push('description');
+    orderVals.push('Demo order for dashboard previews');
+  }
+  if (ordersColumns.has('status')) {
+    orderCols.push('status');
+    orderVals.push('processing');
+  }
+
+  const existing = await pool.query(`SELECT id FROM orders WHERE order_code = $1 LIMIT 1`, [orderCode]);
+  let orderId;
+
+  if (existing.rows.length) {
+    orderId = existing.rows[0].id;
+  } else {
+    const placeholders = orderVals.map((_, i) => `$${i + 1}`).join(', ');
+    const inserted = await pool.query(
+      `INSERT INTO orders (${orderCols.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+      orderVals
+    );
+    orderId = inserted.rows[0].id;
+  }
+
+  await pool.query(`DELETE FROM order_items WHERE order_id = $1`, [orderId]);
+
+  for (const item of selectedProducts) {
+    const p = await pool.query(`SELECT price FROM products WHERE id = $1`, [item.productId]);
+    await pool.query(
+      `INSERT INTO order_items (order_id, product_id, quantity, price)
+       VALUES ($1, $2, $3, $4)`,
+      [orderId, item.productId, item.quantity, Number(p.rows[0]?.price || 0)]
+    );
+  }
+
+  if (await tableExists('order_shops')) {
+    await pool.query(`DELETE FROM order_shops WHERE order_id = $1`, [orderId]);
+    const shopsRes = await pool.query(
+      `SELECT DISTINCT p.shop_id
+       FROM order_items oi
+       JOIN products p ON oi.product_id = p.id
+       WHERE oi.order_id = $1`,
+      [orderId]
+    );
+
+    for (const row of shopsRes.rows) {
+      await pool.query(`INSERT INTO order_shops (order_id, shop_id) VALUES ($1, $2)`, [orderId, row.shop_id]);
+    }
+  }
+
+  if (hasDeliveries && riderIds.length && deliveriesColumns.has('order_id') && deliveriesColumns.has('rider_id')) {
+    const deliveryStatus = deliveriesColumns.has('status') ? 'assigned' : null;
+    const existingDelivery = await pool.query(`SELECT id FROM deliveries WHERE order_id = $1 LIMIT 1`, [orderId]);
+
+    if (existingDelivery.rows.length) {
+      const deliveryId = existingDelivery.rows[0].id;
+      await pool.query(`UPDATE deliveries SET rider_id = $1${deliveryStatus ? ', status = $2' : ''} WHERE id = $${deliveryStatus ? '3' : '2'}`,
+        deliveryStatus ? [riderIds[0], deliveryStatus, deliveryId] : [riderIds[0], deliveryId]);
+    } else {
+      const cols = ['order_id', 'rider_id'];
+      const vals = [orderId, riderIds[0]];
+
+      if (deliveriesColumns.has('status')) {
+        cols.push('status');
+        vals.push('assigned');
+      }
+      if (deliveriesColumns.has('assigned_at')) {
+        cols.push('assigned_at');
+        vals.push(new Date());
+      }
+
+      const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+      await pool.query(`INSERT INTO deliveries (${cols.join(', ')}) VALUES (${placeholders})`, vals);
+    }
+  }
+}
+
+async function seedReviews(userIds, productIdsByName) {
+  if (!(await tableExists('reviews'))) {
+    console.log('Skipping reviews: table not found');
+    return;
+  }
+
+  if (!userIds.length) {
+    console.log('Skipping reviews: no demo users available');
+    return;
+  }
+
+  for (let index = 0; index < demoReviews.length; index += 1) {
+    const review = demoReviews[index];
+    const productId = productIdsByName.get(review.product);
+    if (!productId) continue;
+
+    const userId = userIds[index % userIds.length];
+
+    const existing = await pool.query(
+      `SELECT id FROM reviews WHERE user_id = $1 AND product_id = $2 LIMIT 1`,
+      [userId, productId]
+    );
+
+    if (existing.rows.length) {
+      await pool.query(
+        `UPDATE reviews SET rating = $1, comment = $2 WHERE id = $3`,
+        [review.rating, review.comment, existing.rows[0].id]
+      );
+      continue;
+    }
+
+    await pool.query(
+      `INSERT INTO reviews (user_id, product_id, rating, comment)
+       VALUES ($1, $2, $3, $4)`,
+      [userId, productId, review.rating, review.comment]
+    );
+  }
+}
+
 async function run() {
   console.log('Seeding demo data...');
 
   const productColumns = await getColumns('products');
   const hasProductImages = await tableExists('product_images');
+  const productIdsByName = new Map();
 
   const categoryMap = new Map();
   for (const name of categories) {
@@ -250,9 +560,16 @@ async function run() {
         [productId, item.image]
       );
     }
+
+    productIdsByName.set(item.name, productId);
   }
 
-  console.log(`Seed complete: ${products.length} demo products ready.`);
+  const userIds = await seedUsers();
+  const riderIds = await seedRiders();
+  await seedOrdersAndDeliveries(userIds, riderIds, productIdsByName);
+  await seedReviews(userIds, productIdsByName);
+
+  console.log(`Seed complete: ${products.length} demo products + users/orders/reviews where supported.`);
 }
 
 run().catch((error) => {
