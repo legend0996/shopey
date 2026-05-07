@@ -1,11 +1,15 @@
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');
 
-const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@shopey.co.ke';
-const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
-
 async function ensureDefaultAdmin() {
+  const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+  const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
   try {
+    if (!DEFAULT_ADMIN_EMAIL || !DEFAULT_ADMIN_PASSWORD) {
+      console.warn('[admin-bootstrap] ADMIN_EMAIL or ADMIN_PASSWORD not set in env. Skipping admin bootstrap.');
+      return;
+    }
     const existing = await pool.query('SELECT id FROM admins WHERE email = $1 LIMIT 1', [
       DEFAULT_ADMIN_EMAIL,
     ]);

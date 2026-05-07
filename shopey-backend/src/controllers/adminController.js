@@ -7,8 +7,8 @@ const sendEmail = require('../services/emailService');
 const logAdmin = require('../services/adminLogService');
 
 const devLoginCodes = new Map();
-const DEV_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@shopey.co.ke';
-const DEV_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
+const DEV_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const DEV_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 const isDbUnavailableError = (err) => {
   const code = err?.code;
