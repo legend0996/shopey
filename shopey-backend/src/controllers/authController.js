@@ -3,7 +3,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const generateCode = require('../utils/generateCode');
-const sendEmail = require('../services/emailService');
+const {
+  sendVerificationCodeEmail,
+  sendPasswordResetEmail,
+  sendWelcomeEmail,
+} = require('../services/emailService');
+const { setAuthCookie } = require('../utils/authToken');
 
 
 // ✅ REGISTER
@@ -11,6 +16,15 @@ exports.register = async (req, res) => {
   const { email, phone, password } = req.body;
 
   try {
+    if (!email || !phone || !password) {
+      return res.status(400).json({ message: 'email, phone and password are required' });
+    }
+
+    const existing = await pool.query(`SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email]);
+    if (existing.rows.length) {
+      return res.status(409).json({ message: 'Email already registered' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await pool.query(
@@ -28,11 +42,8 @@ exports.register = async (req, res) => {
       [user.rows[0].id, code, expires]
     );
 
-    try {
-      await sendEmail(email, 'Verify your account', `Your code is ${code}`);
-    } catch (err) {
-      console.error("Email failed:", err.message);
-    }
+    await sendVerificationCodeEmail(email, code);
+    await sendWelcomeEmail(email);
 
     res.json({
       message: 'Registered. If email not received, request new code.'
@@ -49,6 +60,10 @@ exports.verifyEmail = async (req, res) => {
   const { email, code } = req.body;
 
   try {
+    if (!email || !code) {
+      return res.status(400).json({ message: 'email and code are required' });
+    }
+
     const user = await pool.query(
       `SELECT * FROM users WHERE email = $1`,
       [email]
@@ -85,18 +100,24 @@ exports.login = async (req, res) => {
   const { email, password } = req.body;
 
   try {
+    if (!email || !password) {
+      return res.status(400).json({ message: 'email and password are required' });
+    }
+
     const user = await pool.query(
       `SELECT * FROM users WHERE email = $1`,
       [email]
     );
 
-    if (!user.rows.length)
-      return res.status(404).json({ error: 'User not found' });
+    if (!user.rows.length) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     const valid = await bcrypt.compare(password, user.rows[0].password);
 
-    if (!valid)
-      return res.status(400).json({ error: 'Invalid password' });
+    if (!valid) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
     if (!user.rows[0].is_verified)
       return res.status(403).json({ error: 'Verify your email first' });
@@ -107,7 +128,17 @@ exports.login = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.json({ token });
+    setAuthCookie(res, 'auth_token', token);
+
+    res.json({
+      token,
+      user: {
+        id: user.rows[0].id,
+        name: user.rows[0].name || user.rows[0].email,
+        email: user.rows[0].email,
+        phone: user.rows[0].phone,
+      },
+    });
 
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -120,6 +151,10 @@ exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   try {
+    if (!email) {
+      return res.status(400).json({ message: 'email is required' });
+    }
+
     const user = await pool.query(
       `SELECT * FROM users WHERE email = $1`,
       [email]
@@ -137,7 +172,7 @@ exports.forgotPassword = async (req, res) => {
       [user.rows[0].id, code, expires]
     );
 
-    await sendEmail(email, 'Reset Password Code', `Your code is ${code}`);
+    await sendPasswordResetEmail(email, code);
 
     res.json({ message: 'Code sent to email' });
 
@@ -152,6 +187,10 @@ exports.resetPassword = async (req, res) => {
   const { email, code, newPassword } = req.body;
 
   try {
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: 'email, code and newPassword are required' });
+    }
+
     const user = await pool.query(
       `SELECT * FROM users WHERE email = $1`,
       [email]

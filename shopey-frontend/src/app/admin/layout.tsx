@@ -1,23 +1,41 @@
 "use client";
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { adminService } from "@/services/adminService";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const adminLoginPath = "/securedlink/login";
+  const adminLoginPath = pathname?.startsWith("/securedlink") ? "/securedlink/login" : "/admin/login";
+  const isLoginPage = pathname === "/securedlink/login" || pathname === "/admin/login";
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["admin", "me"],
+    queryFn: () => adminService.me().then((r) => r.data),
+    retry: 0,
+    enabled: !isLoginPage,
+  });
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("admin_token");
-      if (!token && pathname !== adminLoginPath) {
-        router.replace(adminLoginPath);
-      }
+    if (!isLoginPage && isError) {
+      localStorage.removeItem("admin_token");
+      router.replace(adminLoginPath);
     }
-  }, [pathname, router, adminLoginPath]);
+  }, [adminLoginPath, isError, isLoginPage, router]);
 
-  if (pathname === adminLoginPath) {
+  useEffect(() => {
+    if (isLoginPage && data?.admin) {
+      router.replace(pathname?.startsWith("/securedlink") ? "/securedlink" : "/admin");
+    }
+  }, [data?.admin, isLoginPage, pathname, router]);
+
+  if (isLoginPage) {
     return <>{children}</>;
+  }
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Loading admin session...</div>;
   }
 
   return (

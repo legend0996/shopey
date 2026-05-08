@@ -4,7 +4,7 @@ import { adminService } from "@/services/adminService";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 export default function AdminLoginPage() {
   const [step, setStep] = useState<"login" | "verify">("login");
@@ -14,6 +14,8 @@ export default function AdminLoginPage() {
   const [devCodeHint, setDevCodeHint] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+  const adminHome = pathname?.startsWith("/securedlink") ? "/securedlink" : "/admin";
 
   const handleLogin = async () => {
     if (!email || !password) return toast.error("Enter email and password");
@@ -43,7 +45,7 @@ export default function AdminLoginPage() {
       if (token) {
         localStorage.setItem("admin_token", token);
         toast.success("Welcome, Admin!");
-        router.push("/securedlink");
+        router.push(adminHome);
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;

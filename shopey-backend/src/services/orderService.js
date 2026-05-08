@@ -111,8 +111,9 @@ module.exports = async (pending) => {
 
   // Email receipt to user
   const userEmail = await pool.query(`SELECT email FROM users WHERE id=$1`, [userId]);
-  const sendEmail = require('./emailService');
-  await sendEmail(userEmail.rows[0].email, 'Order Receipt', 'Your order receipt is attached.', [
+  const { sendBasicEmail, sendOrderConfirmationEmail } = require('./emailService');
+  await sendOrderConfirmationEmail(userEmail.rows[0].email, order.rows[0]);
+  await sendBasicEmail(userEmail.rows[0].email, 'Order Receipt', 'Your order receipt is attached.', [
     {
       filename: 'receipt.pdf',
       path: filePath

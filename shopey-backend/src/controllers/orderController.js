@@ -216,12 +216,17 @@ exports.getUserOrders = async (req, res) => {
 // 🔍 GET SINGLE ORDER (FULL DETAILS)
 exports.getUserOrderDetails = async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
 
   try {
     const order = await pool.query(
-      `SELECT * FROM orders WHERE id = $1`,
-      [id]
+      `SELECT * FROM orders WHERE id = $1 AND user_id = $2`,
+      [id, userId]
     );
+
+    if (!order.rows.length) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
 
     const items = await pool.query(
       `SELECT 
@@ -254,8 +259,20 @@ exports.getUserOrderDetails = async (req, res) => {
 // 📄 DOWNLOAD RECEIPT
 exports.downloadReceipt = (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
 
-  const filePath = `receipts/order_${id}.pdf`;
+  pool.query(`SELECT id FROM orders WHERE id = $1 AND user_id = $2 LIMIT 1`, [id, userId])
+    .then((result) => {
+      if (!result.rows.length) {
+        res.status(404).json({ message: 'Order not found' });
+        return;
+      }
 
-  res.download(filePath);
+      const filePath = `receipts/order_${id}.pdf`;
+
+      res.download(filePath);
+    })
+    .catch((err) => {
+      res.status(500).json({ error: err.message });
+    });
 };

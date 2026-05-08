@@ -9,15 +9,18 @@ const API_BASE_URL =
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
+  withCredentials: true,
 });
 
 axiosInstance.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const path = window.location.pathname;
+    const isAdminPath = path.startsWith("/securedlink") || path.startsWith("/admin");
+    const isRiderPath = path.startsWith("/rider");
     const token =
-      path.startsWith("/securedlink") || path.startsWith("/admin")
+      isAdminPath
         ? localStorage.getItem("admin_token")
-        : path.startsWith("/rider")
+        : isRiderPath
           ? localStorage.getItem("rider_token")
           : localStorage.getItem("token");
     if (token) {

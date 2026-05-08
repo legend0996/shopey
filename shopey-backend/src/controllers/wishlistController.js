@@ -6,11 +6,21 @@ exports.addToWishlist = async (req, res) => {
   const { product_id } = req.body;
 
   try {
+    const normalizedProductId = Number(product_id);
+    if (!Number.isFinite(normalizedProductId)) {
+      return res.status(400).json({ message: 'product_id must be a valid number' });
+    }
+
+    const product = await pool.query(`SELECT id FROM products WHERE id = $1 LIMIT 1`, [normalizedProductId]);
+    if (!product.rows.length) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
     await pool.query(
       `INSERT INTO wishlist (user_id, product_id)
        VALUES ($1, $2)
        ON CONFLICT DO NOTHING`,
-      [userId, product_id]
+      [userId, normalizedProductId]
     );
 
     res.json({ message: 'Added to wishlist' });
@@ -25,10 +35,15 @@ exports.removeFromWishlist = async (req, res) => {
   const { product_id } = req.body;
 
   try {
+    const normalizedProductId = Number(product_id);
+    if (!Number.isFinite(normalizedProductId)) {
+      return res.status(400).json({ message: 'product_id must be a valid number' });
+    }
+
     await pool.query(
       `DELETE FROM wishlist
        WHERE user_id=$1 AND product_id=$2`,
-      [userId, product_id]
+      [userId, normalizedProductId]
     );
 
     res.json({ message: 'Removed from wishlist' });
@@ -69,9 +84,14 @@ exports.checkWishlist = async (req, res) => {
   const { product_id } = req.params;
 
   try {
+    const normalizedProductId = Number(product_id);
+    if (!Number.isFinite(normalizedProductId)) {
+      return res.status(400).json({ message: 'product_id must be a valid number' });
+    }
+
     const result = await pool.query(
       `SELECT * FROM wishlist WHERE user_id=$1 AND product_id=$2`,
-      [userId, product_id]
+      [userId, normalizedProductId]
     );
 
     res.json({ exists: result.rows.length > 0 });

@@ -10,6 +10,9 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
+import { consumePendingAction } from "@/lib/pendingAction";
+import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
 
 const schema = z.object({
   email: z.string().email("Invalid email"),
@@ -20,6 +23,9 @@ type FormData = z.infer<typeof schema>;
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { setAuth } = useAuthStore();
+  const addItem = useCartStore((s) => s.addItem);
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const syncWishlist = useWishlistStore((s) => s.syncFromServer);
   const router = useRouter();
 
   const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
@@ -32,8 +38,24 @@ export default function LoginPage() {
       const res = await authService.login(data);
       const { token, user } = res.data;
       setAuth(token, user);
+      await syncWishlist();
+
+      const pendingAction = consumePendingAction();
+      if (pendingAction?.type === "add_to_cart") {
+        addItem(pendingAction.product);
+        toast.success("Added to cart");
+      }
+
+      if (pendingAction?.type === "toggle_wishlist") {
+        await toggleWishlist(String(pendingAction.product.id));
+        toast.success("Wishlist updated");
+      }
+
+      const next = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("next") || "/"
+        : "/";
       toast.success(`Welcome back, ${user.name}!`);
-      router.push("/");
+      router.push(next);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || "Login failed. Check credentials.");

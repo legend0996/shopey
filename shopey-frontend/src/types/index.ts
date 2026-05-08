@@ -15,11 +15,16 @@ export interface Product {
   price: number;
   image: string;
   images?: string[];
+  gallery?: Array<{ id?: number; url: string; is_thumbnail?: boolean; order?: number }>;
+  thumbnail?: { id?: number; url: string; is_thumbnail?: boolean; order?: number } | null;
   category: string;
   rating?: number;
   reviewCount?: number;
   stock?: number;
   featured?: boolean;
+  popularity?: number;
+  tags?: string[];
+  brand?: string | null;
   shop?: { name: string; id: string };
 }
 

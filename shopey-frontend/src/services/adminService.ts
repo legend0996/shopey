@@ -3,6 +3,7 @@ import axiosInstance from "@/lib/axios";
 export const adminService = {
   login: (data: { email: string; password: string }) => axiosInstance.post("/admin/login", data),
   verify: (data: { email: string; code: string }) => axiosInstance.post("/admin/verify", data),
+  me: () => axiosInstance.get("/admin/me"),
   getDashboard: () => axiosInstance.get("/admin/dashboard"),
   getOrders: () => axiosInstance.get("/admin/orders"),
   getOrderFull: (id: string) => axiosInstance.get(`/admin/order/${id}/full`),

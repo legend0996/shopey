@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { Button } from "./Button";
@@ -14,10 +14,8 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, size = "md" }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -25,7 +23,7 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  if (!mounted || !open) return null;
+  if (typeof document === "undefined" || !open) return null;
 
   const sizes = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-lg", xl: "max-w-2xl" };
 

@@ -3,11 +3,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const generateCode = require('../utils/generateCode');
-const sendEmail = require('../services/emailService');
+const { sendBasicEmail } = require('../services/emailService');
 const logAdmin = require('../services/adminLogService');
+const { setAuthCookie } = require('../utils/authToken');
 
 const devLoginCodes = new Map();
-const DEV_ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const DEV_ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const DEV_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 const isDbUnavailableError = (err) => {
@@ -27,15 +28,20 @@ const isDbUnavailableError = (err) => {
 // ✅ STEP 1: LOGIN (send code)
 exports.login = async (req, res) => {
   const { email, password } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
   try {
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ message: 'email and password are required' });
+    }
+
     const adminRes = await pool.query(
       `SELECT * FROM admins WHERE email = $1`,
-      [email]
+      [normalizedEmail]
     );
 
     if (!adminRes.rows.length) {
-      return res.status(404).json({ error: 'Admin not found' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const admin = adminRes.rows[0];
@@ -47,7 +53,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    const valid = await bcrypt.compare(password, admin.password);
+    const valid = admin.password ? await bcrypt.compare(password, admin.password) : false;
 
     if (!valid) {
       const attempts = admin.failed_attempts + 1;
@@ -63,7 +69,7 @@ exports.login = async (req, res) => {
           [blockTime, admin.id]
         );
 
-        await logAdmin(`Admin ${email} blocked for 30 mins`);
+        await logAdmin(`Admin ${normalizedEmail} blocked for 30 mins`);
 
         return res.status(403).json({
           error: 'Too many failed attempts. Blocked for 30 minutes.'
@@ -75,7 +81,7 @@ exports.login = async (req, res) => {
         [attempts, admin.id]
       );
 
-      return res.status(400).json({ error: 'Invalid password' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // ✅ Reset attempts on success
@@ -95,15 +101,18 @@ exports.login = async (req, res) => {
       [admin.id, code, expires]
     );
 
-    const canSendEmail = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+    const canSendEmail = Boolean(
+      (process.env.SMTP_USER || process.env.EMAIL_USER) &&
+      (process.env.SMTP_PASS || process.env.EMAIL_PASS)
+    );
 
     if (canSendEmail) {
-      await sendEmail(email, 'Admin Login Code', `Your login code is ${code}`);
+      await sendBasicEmail(normalizedEmail, 'Admin Login Code', `Your login code is ${code}`);
     } else {
-      console.warn(`[admin-login] EMAIL_USER/EMAIL_PASS missing. Login code for ${email}: ${code}`);
+      console.warn(`[admin-login] EMAIL_USER/EMAIL_PASS missing. Login code for ${normalizedEmail}: ${code}`);
     }
 
-    await logAdmin(`Admin ${email} requested login code`);
+    await logAdmin(`Admin ${normalizedEmail} requested login code`);
 
     res.json({
       message: canSendEmail ? 'Code sent to email' : 'Code generated. Check server logs (dev mode).',
@@ -111,10 +120,10 @@ exports.login = async (req, res) => {
     });
 
   } catch (err) {
-    if (isDbUnavailableError(err) && email === DEV_ADMIN_EMAIL && password === DEV_ADMIN_PASSWORD) {
+    if (isDbUnavailableError(err) && normalizedEmail === DEV_ADMIN_EMAIL && password === DEV_ADMIN_PASSWORD) {
       const code = generateCode();
       const expiresAt = Date.now() + 10 * 60 * 1000;
-      devLoginCodes.set(email, { code, expiresAt });
+      devLoginCodes.set(normalizedEmail, { code, expiresAt });
 
       return res.json({
         message: 'Database unavailable. Dev login code generated.',
@@ -122,7 +131,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    res.status(500).json({ error: err.message, message: err.message });
+    res.status(500).json({ message: 'Unable to process admin login right now' });
   }
 };
 
@@ -130,11 +139,16 @@ exports.login = async (req, res) => {
 // ✅ STEP 2: VERIFY CODE
 exports.verifyCode = async (req, res) => {
   const { email, code } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
-  const devRecord = devLoginCodes.get(email);
+  if (!normalizedEmail || !code) {
+    return res.status(400).json({ message: 'email and code are required' });
+  }
+
+  const devRecord = devLoginCodes.get(normalizedEmail);
   if (devRecord) {
     if (Date.now() > devRecord.expiresAt) {
-      devLoginCodes.delete(email);
+      devLoginCodes.delete(normalizedEmail);
       return res.status(400).json({ error: 'Code expired', message: 'Code expired' });
     }
 
@@ -142,7 +156,7 @@ exports.verifyCode = async (req, res) => {
       return res.status(400).json({ error: 'Invalid code', message: 'Invalid code' });
     }
 
-    devLoginCodes.delete(email);
+    devLoginCodes.delete(normalizedEmail);
 
     const token = jwt.sign(
       { id: 0, role: 'admin' },
@@ -150,13 +164,14 @@ exports.verifyCode = async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    setAuthCookie(res, 'admin_token', token);
     return res.json({ token });
   }
 
   try {
     const adminRes = await pool.query(
       `SELECT * FROM admins WHERE email = $1`,
-      [email]
+      [normalizedEmail]
     );
 
     if (!adminRes.rows.length) {
@@ -194,12 +209,31 @@ exports.verifyCode = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    await logAdmin(`Admin ${email} logged in successfully`);
+    setAuthCookie(res, 'admin_token', token);
 
-    res.json({ token });
+    await logAdmin(`Admin ${normalizedEmail} logged in successfully`);
+
+    res.json({ token, admin: { id: admin.id, email: admin.email, role: 'admin' } });
 
   } catch (err) {
-    res.status(500).json({ error: err.message, message: err.message });
+    res.status(500).json({ message: 'Unable to verify admin code right now' });
+  }
+};
+
+exports.me = async (req, res) => {
+  try {
+    if (!req.admin?.id) {
+      return res.json({ admin: { id: 0, email: process.env.ADMIN_EMAIL || 'admin@shopey.local', role: 'admin' } });
+    }
+
+    const adminRes = await pool.query(`SELECT id, email FROM admins WHERE id = $1 LIMIT 1`, [req.admin.id]);
+    if (!adminRes.rows.length) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+
+    return res.json({ admin: { ...adminRes.rows[0], role: 'admin' } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message, message: err.message });
   }
 };
 

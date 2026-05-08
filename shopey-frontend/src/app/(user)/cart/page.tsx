@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useCartStore } from "@/store/cartStore";
 import { resolveImageUrl } from "@/lib/images";
+import { useAuthStore } from "@/store/authStore";
 
 export default function CartPage() {
   const { items, removeItem, updateQuantity, subtotal } = useCartStore();
+  const token = useAuthStore((s) => s.token);
 
   if (items.length === 0) {
     return (
@@ -66,8 +68,8 @@ export default function CartPage() {
             <span>KES {subtotal().toLocaleString()}</span>
           </div>
         </div>
-        <Link href="/checkout" className="block mt-5">
-          <Button fullWidth size="lg">Proceed to Checkout</Button>
+        <Link href={token ? "/checkout" : "/login?next=%2Fcheckout"} className="block mt-5">
+          <Button fullWidth size="lg">{token ? "Proceed to Checkout" : "Login to Checkout"}</Button>
         </Link>
       </aside>
     </div>

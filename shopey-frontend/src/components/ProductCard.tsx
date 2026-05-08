@@ -4,10 +4,13 @@ import Link from "next/link";
 import { Product } from "@/types";
 import { useCartStore } from "@/store/cartStore";
 import { useWishlistStore } from "@/store/wishlistStore";
+import { useAuthStore } from "@/store/authStore";
 import { Button } from "./ui/Button";
 import { toast } from "sonner";
 import clsx from "clsx";
 import { resolveImageUrl } from "@/lib/images";
+import { usePathname, useRouter } from "next/navigation";
+import { savePendingAction } from "@/lib/pendingAction";
 
 interface ProductCardProps {
   product: Product;
@@ -16,18 +19,41 @@ interface ProductCardProps {
 export function ProductCard({ product }: ProductCardProps) {
   const addItem = useCartStore((s) => s.addItem);
   const { toggle, has } = useWishlistStore();
+  const token = useAuthStore((s) => s.token);
+  const router = useRouter();
+  const pathname = usePathname();
   const wished = has(product.id);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
+
+    if (!token) {
+      savePendingAction({ type: "add_to_cart", product });
+      toast.info("Please log in to add items to cart");
+      router.push(`/login?next=${encodeURIComponent(pathname || "/")}`);
+      return;
+    }
+
     addItem(product);
     toast.success(`${product.name} added to cart!`);
   };
 
-  const handleWishlist = (e: React.MouseEvent) => {
+  const handleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
-    toggle(product.id);
-    toast.success(wished ? "Removed from wishlist" : "Added to wishlist");
+
+    if (!token) {
+      savePendingAction({ type: "toggle_wishlist", product });
+      toast.info("Please log in to manage wishlist");
+      router.push(`/login?next=${encodeURIComponent(pathname || "/")}`);
+      return;
+    }
+
+    try {
+      const added = await toggle(String(product.id));
+      toast.success(added ? "Added to wishlist" : "Removed from wishlist");
+    } catch {
+      toast.error("Wishlist update failed. Please try again.");
+    }
   };
 
   const imageUrl = resolveImageUrl(product.image);

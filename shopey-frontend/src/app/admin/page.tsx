@@ -40,7 +40,7 @@ export default function AdminDashboard() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <KpiCard label="Total Orders" value={data?.total_orders ?? data?.totalOrders ?? 0} icon="📦" />
-          <KpiCard label="Revenue (KES)" value={(data?.revenue ?? 0).toLocaleString()} icon="💰" />
+          <KpiCard label="Revenue (KES)" value={Number(data?.total_revenue ?? data?.revenue ?? 0).toLocaleString()} icon="💰" />
           <KpiCard label="Total Users" value={data?.total_users ?? data?.totalUsers ?? 0} icon="👥" />
         </div>
       )}

@@ -6,6 +6,7 @@ const adminMiddleware = require('../middleware/adminMiddleware');
 
 router.post('/login', admin.login);
 router.post('/verify', admin.verifyCode);
+router.get('/me', adminMiddleware, admin.me);
 router.get('/dashboard', adminMiddleware, admin.dashboard);
 router.get('/orders', adminMiddleware, admin.getOrders);
 router.get('/orders/:id', adminMiddleware, admin.getOrderDetails);
