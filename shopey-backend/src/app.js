@@ -10,12 +10,34 @@ const allowedOrigins = rawOrigins
 	.map((origin) => origin.trim())
 	.filter(Boolean);
 
+let corsConfigWarned = false;
+
 const allowLocalhost = process.env.NODE_ENV !== 'production';
 
 function isAllowedOrigin(origin = '') {
 	if (!origin) return true;
 
+	if (allowedOrigins.length === 0) {
+		if (!corsConfigWarned) {
+			console.warn('[cors] CORS_ORIGINS/FRONTEND_URL is empty. Allowing all origins. Set CORS_ORIGINS in production.');
+			corsConfigWarned = true;
+		}
+		return true;
+	}
+
 	if (allowedOrigins.includes(origin)) return true;
+
+	const wildcardMatch = allowedOrigins.some((pattern) => {
+		if (!pattern.includes('*')) return false;
+
+		const escaped = pattern
+			.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+			.replace(/\*/g, '.*');
+
+		return new RegExp(`^${escaped}$`, 'i').test(origin);
+	});
+
+	if (wildcardMatch) return true;
 
 	if (allowLocalhost && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
 		return true;
