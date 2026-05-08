@@ -3,6 +3,10 @@ const pool = require('../config/db');
 let productColumnsCache = null;
 let productColumnsFetchedAt = 0;
 let galleryColumnReady = false;
+let productTablesCache = null;
+let productTablesFetchedAt = 0;
+let productImageColumnsCache = null;
+let productImageColumnsFetchedAt = 0;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -34,6 +38,40 @@ async function getProductColumns() {
   productColumnsCache = new Set(result.rows.map((row) => row.column_name));
   productColumnsFetchedAt = now;
   return productColumnsCache;
+}
+
+async function getProductTables() {
+  const now = Date.now();
+  if (productTablesCache && now - productTablesFetchedAt < CACHE_TTL_MS) {
+    return productTablesCache;
+  }
+
+  const result = await pool.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = 'public'`
+  );
+
+  productTablesCache = new Set(result.rows.map((row) => row.table_name));
+  productTablesFetchedAt = now;
+  return productTablesCache;
+}
+
+async function getProductImageColumns() {
+  const now = Date.now();
+  if (productImageColumnsCache && now - productImageColumnsFetchedAt < CACHE_TTL_MS) {
+    return productImageColumnsCache;
+  }
+
+  const result = await pool.query(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'product_images'`
+  );
+
+  productImageColumnsCache = new Set(result.rows.map((row) => row.column_name));
+  productImageColumnsFetchedAt = now;
+  return productImageColumnsCache;
 }
 
 async function ensureGalleryOrderColumn() {
@@ -87,7 +125,8 @@ const normalizeProduct = (row) => {
   };
 };
 
-function buildProductFilters(query, values, columns) {
+function buildProductFilters(query, values, columns, options = {}) {
+  const hasReviews = Boolean(options.hasReviews);
   const whereParts = ['1=1'];
   const havingParts = [];
 
@@ -151,7 +190,7 @@ function buildProductFilters(query, values, columns) {
   }
 
   const minRating = parseNumber(query.rating);
-  if (minRating !== null) {
+  if (minRating !== null && hasReviews) {
     values.push(minRating);
     havingParts.push(`COALESCE(AVG(r.rating), 0) >= $${values.length}`);
   }
@@ -162,7 +201,10 @@ function buildProductFilters(query, values, columns) {
   };
 }
 
-function getOrderBy(sort, newest) {
+function getOrderBy(sort, newest, options = {}) {
+  const hasReviews = Boolean(options.hasReviews);
+  const hasOrderItems = Boolean(options.hasOrderItems);
+
   if (newest === true || sort === 'newest') {
     return 'p.created_at DESC NULLS LAST';
   }
@@ -173,8 +215,10 @@ function getOrderBy(sort, newest) {
     case 'price_desc':
       return 'p.price DESC';
     case 'rating':
+      if (!hasReviews) return 'p.created_at DESC NULLS LAST';
       return 'rating DESC, review_count DESC';
     case 'popularity':
+      if (!hasOrderItems) return 'p.created_at DESC NULLS LAST';
       return 'popularity DESC';
     default:
       return 'p.created_at DESC NULLS LAST';
@@ -346,8 +390,16 @@ exports.createProduct = async (req, res) => {
 exports.getProducts = async (req, res) => {
   try {
     const columns = await getProductColumns();
+    const tables = await getProductTables();
+    const imageColumns = await getProductImageColumns();
+    const hasReviews = tables.has('reviews');
+    const hasOrderItems = tables.has('order_items');
+    const hasProductImages = tables.has('product_images');
+    const hasImageThumbnail = imageColumns.has('is_thumbnail');
+    const hasImageOrder = imageColumns.has('display_order');
+
     const values = [];
-    const { whereClause, havingClause } = buildProductFilters(req.query, values, columns);
+    const { whereClause, havingClause } = buildProductFilters(req.query, values, columns, { hasReviews });
 
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(60, Math.max(1, Number(req.query.limit) || 12));
@@ -355,7 +407,33 @@ exports.getProducts = async (req, res) => {
 
     const sort = String(req.query.sort || '').trim();
     const newest = parseBool(req.query.newest) === true;
-    const orderBy = getOrderBy(sort, newest);
+    const orderBy = getOrderBy(sort, newest, { hasReviews, hasOrderItems });
+
+    const reviewsJoin = hasReviews ? 'LEFT JOIN reviews r ON r.product_id = p.id' : '';
+    const orderItemsJoin = hasOrderItems ? 'LEFT JOIN order_items oi ON oi.product_id = p.id' : '';
+    const ratingSelect = hasReviews ? 'COALESCE(AVG(r.rating), 0)::FLOAT AS rating' : '0::FLOAT AS rating';
+    const reviewCountSelect = hasReviews ? 'COUNT(DISTINCT r.id)::INT AS review_count' : '0::INT AS review_count';
+    const popularitySelect = hasOrderItems ? 'COALESCE(SUM(oi.quantity), 0)::INT AS popularity' : '0::INT AS popularity';
+    const imageThumbnailExpr = hasImageThumbnail ? 'pi.is_thumbnail' : 'FALSE';
+    const imageOrderExpr = hasImageOrder ? 'COALESCE(pi.display_order, 0)' : '0';
+    const gallerySelect = hasProductImages
+      ? `COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'id', pi.id,
+                'url', pi.image_url,
+                'is_thumbnail', ${imageThumbnailExpr},
+                'display_order', ${imageOrderExpr}
+              )
+              ORDER BY ${imageOrderExpr}, pi.id
+            )
+            FROM product_images pi
+            WHERE pi.product_id = p.id
+          ),
+          '[]'::json
+        ) AS gallery`
+      : `'[]'::json AS gallery`;
 
     const countQuery = `
       SELECT COUNT(*)::INT AS total
@@ -363,7 +441,7 @@ exports.getProducts = async (req, res) => {
         SELECT p.id
         FROM products p
         LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN reviews r ON r.product_id = p.id
+        ${reviewsJoin}
         WHERE ${whereClause}
         GROUP BY p.id, c.name
         ${havingClause}
@@ -378,29 +456,14 @@ exports.getProducts = async (req, res) => {
       SELECT
         p.*,
         c.name AS category,
-        COALESCE(AVG(r.rating), 0)::FLOAT AS rating,
-        COUNT(DISTINCT r.id)::INT AS review_count,
-        COALESCE(SUM(oi.quantity), 0)::INT AS popularity,
-        COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object(
-                'id', pi.id,
-                'url', pi.image_url,
-                'is_thumbnail', pi.is_thumbnail,
-                'display_order', COALESCE(pi.display_order, 0)
-              )
-              ORDER BY COALESCE(pi.display_order, 0), pi.id
-            )
-            FROM product_images pi
-            WHERE pi.product_id = p.id
-          ),
-          '[]'::json
-        ) AS gallery
+        ${ratingSelect},
+        ${reviewCountSelect},
+        ${popularitySelect},
+        ${gallerySelect}
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
-      LEFT JOIN reviews r ON r.product_id = p.id
-      LEFT JOIN order_items oi ON oi.product_id = p.id
+      ${reviewsJoin}
+      ${orderItemsJoin}
       WHERE ${whereClause}
       GROUP BY p.id, c.name
       ${havingClause}
@@ -449,6 +512,11 @@ exports.getSearchSuggestions = async (req, res) => {
 
   try {
     const columns = await getProductColumns();
+    const tables = await getProductTables();
+    const imageColumns = await getProductImageColumns();
+    const hasProductImages = tables.has('product_images');
+    const hasImageThumbnail = imageColumns.has('is_thumbnail');
+    const hasImageOrder = imageColumns.has('display_order');
     const whereParts = [
       `p.name ILIKE $1`,
       `c.name ILIKE $1`,
@@ -464,22 +532,27 @@ exports.getSearchSuggestions = async (req, res) => {
     }
 
     const featuredOrder = columns.has('is_featured') ? 'p.is_featured DESC,' : '';
+    const imageOrderBy = `${hasImageThumbnail ? 'pi.is_thumbnail DESC,' : ''} ${hasImageOrder ? 'COALESCE(pi.display_order, 0),' : ''} pi.id`;
+
+    const imageSelect = hasProductImages
+      ? `COALESCE(
+          (
+            SELECT pi.image_url
+            FROM product_images pi
+            WHERE pi.product_id = p.id
+            ORDER BY ${imageOrderBy}
+            LIMIT 1
+          ),
+          p.image
+        ) AS image`
+      : `p.image`;
 
     const result = await pool.query(
       `SELECT
         p.id,
         p.name,
         c.name AS category,
-        COALESCE(
-          (
-            SELECT pi.image_url
-            FROM product_images pi
-            WHERE pi.product_id = p.id
-            ORDER BY pi.is_thumbnail DESC, COALESCE(pi.display_order, 0), pi.id
-            LIMIT 1
-          ),
-          p.image
-        ) AS image
+        ${imageSelect}
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE ${whereParts.join(' OR ')}
@@ -500,31 +573,46 @@ exports.getSingleProduct = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const product = await pool.query(
-      `SELECT
-        p.*,
-        c.name AS category,
-        COALESCE(AVG(r.rating), 0)::FLOAT AS rating,
-        COUNT(DISTINCT r.id)::INT AS review_count,
-        COALESCE(
+    const tables = await getProductTables();
+    const imageColumns = await getProductImageColumns();
+    const hasReviews = tables.has('reviews');
+    const hasProductImages = tables.has('product_images');
+    const hasImageThumbnail = imageColumns.has('is_thumbnail');
+    const hasImageOrder = imageColumns.has('display_order');
+    const reviewsJoin = hasReviews ? 'LEFT JOIN reviews r ON r.product_id = p.id' : '';
+    const ratingSelect = hasReviews ? 'COALESCE(AVG(r.rating), 0)::FLOAT AS rating' : '0::FLOAT AS rating';
+    const reviewCountSelect = hasReviews ? 'COUNT(DISTINCT r.id)::INT AS review_count' : '0::INT AS review_count';
+    const imageThumbnailExpr = hasImageThumbnail ? 'pi.is_thumbnail' : 'FALSE';
+    const imageOrderExpr = hasImageOrder ? 'COALESCE(pi.display_order, 0)' : '0';
+    const gallerySelect = hasProductImages
+      ? `COALESCE(
           (
             SELECT json_agg(
               json_build_object(
                 'id', pi.id,
                 'url', pi.image_url,
-                'is_thumbnail', pi.is_thumbnail,
-                'display_order', COALESCE(pi.display_order, 0)
+                'is_thumbnail', ${imageThumbnailExpr},
+                'display_order', ${imageOrderExpr}
               )
-              ORDER BY COALESCE(pi.display_order, 0), pi.id
+              ORDER BY ${imageOrderExpr}, pi.id
             )
             FROM product_images pi
             WHERE pi.product_id = p.id
           ),
           '[]'::json
-        ) AS gallery
+        ) AS gallery`
+      : `'[]'::json AS gallery`;
+
+    const product = await pool.query(
+      `SELECT
+        p.*,
+        c.name AS category,
+        ${ratingSelect},
+        ${reviewCountSelect},
+        ${gallerySelect}
       FROM products p
       LEFT JOIN categories c ON c.id = p.category_id
-      LEFT JOIN reviews r ON r.product_id = p.id
+      ${reviewsJoin}
       WHERE p.id = $1
       GROUP BY p.id, c.name`,
       [id]
@@ -606,23 +694,35 @@ exports.deleteProduct = async (req, res) => {
 // 📊 GET FEATURED PRODUCTS
 exports.getFeaturedProducts = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT
-        p.*,
-        c.name AS category,
-        COALESCE(
+    const columns = await getProductColumns();
+    const tables = await getProductTables();
+    const imageColumns = await getProductImageColumns();
+    const hasProductImages = tables.has('product_images');
+    const hasImageThumbnail = imageColumns.has('is_thumbnail');
+    const hasImageOrder = imageColumns.has('display_order');
+    const whereFeatured = columns.has('is_featured') ? 'WHERE p.is_featured = TRUE' : '';
+    const imageOrderBy = `${hasImageThumbnail ? 'pi.is_thumbnail DESC,' : ''} ${hasImageOrder ? 'COALESCE(pi.display_order, 0),' : ''} pi.id`;
+    const imageSelect = hasProductImages
+      ? `COALESCE(
           (
             SELECT pi.image_url
             FROM product_images pi
             WHERE pi.product_id = p.id
-            ORDER BY pi.is_thumbnail DESC, COALESCE(pi.display_order, 0), pi.id
+            ORDER BY ${imageOrderBy}
             LIMIT 1
           ),
           p.image
-        ) AS image
+        ) AS image`
+      : 'p.image';
+
+    const result = await pool.query(
+      `SELECT
+        p.*,
+        c.name AS category,
+        ${imageSelect}
       FROM products p
       LEFT JOIN categories c ON c.id = p.category_id
-      WHERE p.is_featured = TRUE
+      ${whereFeatured}
       ORDER BY p.created_at DESC`
     );
 
