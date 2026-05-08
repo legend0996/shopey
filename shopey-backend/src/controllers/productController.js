@@ -517,6 +517,7 @@ exports.getSearchSuggestions = async (req, res) => {
     const hasProductImages = tables.has('product_images');
     const hasImageThumbnail = imageColumns.has('is_thumbnail');
     const hasImageOrder = imageColumns.has('display_order');
+    const hasProductImageColumn = columns.has('image');
     const whereParts = [
       `p.name ILIKE $1`,
       `c.name ILIKE $1`,
@@ -534,6 +535,7 @@ exports.getSearchSuggestions = async (req, res) => {
     const featuredOrder = columns.has('is_featured') ? 'p.is_featured DESC,' : '';
     const imageOrderBy = `${hasImageThumbnail ? 'pi.is_thumbnail DESC,' : ''} ${hasImageOrder ? 'COALESCE(pi.display_order, 0),' : ''} pi.id`;
 
+    const imageFallback = hasProductImageColumn ? 'p.image' : 'NULL';
     const imageSelect = hasProductImages
       ? `COALESCE(
           (
@@ -543,9 +545,9 @@ exports.getSearchSuggestions = async (req, res) => {
             ORDER BY ${imageOrderBy}
             LIMIT 1
           ),
-          p.image
+          ${imageFallback}
         ) AS image`
-      : `p.image`;
+      : `${imageFallback} AS image`;
 
     const result = await pool.query(
       `SELECT
@@ -700,8 +702,10 @@ exports.getFeaturedProducts = async (req, res) => {
     const hasProductImages = tables.has('product_images');
     const hasImageThumbnail = imageColumns.has('is_thumbnail');
     const hasImageOrder = imageColumns.has('display_order');
+    const hasProductImageColumn = columns.has('image');
     const whereFeatured = columns.has('is_featured') ? 'WHERE p.is_featured = TRUE' : '';
     const imageOrderBy = `${hasImageThumbnail ? 'pi.is_thumbnail DESC,' : ''} ${hasImageOrder ? 'COALESCE(pi.display_order, 0),' : ''} pi.id`;
+    const imageFallback = hasProductImageColumn ? 'p.image' : 'NULL';
     const imageSelect = hasProductImages
       ? `COALESCE(
           (
@@ -711,9 +715,9 @@ exports.getFeaturedProducts = async (req, res) => {
             ORDER BY ${imageOrderBy}
             LIMIT 1
           ),
-          p.image
+          ${imageFallback}
         ) AS image`
-      : 'p.image';
+      : `${imageFallback} AS image`;
 
     const result = await pool.query(
       `SELECT
