@@ -49,7 +49,7 @@ async function sendPasswordResetEmail(to, code) {
   return sendSafeEmail({
     to,
     subject: 'Reset Password Code',
-    html: passwordResetTemplate({ code }),
+    html: passwordResetTemplate({ code, email: to }),
     text: `Your password reset code is ${code}`,
   });
 }

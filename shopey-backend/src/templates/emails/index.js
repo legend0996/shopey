@@ -32,12 +32,16 @@ function orderConfirmationTemplate({ orderCode, finalAmount }) {
   );
 }
 
-function passwordResetTemplate({ code }) {
+function passwordResetTemplate({ code, email }) {
+  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const resetLink = `${baseUrl}/login/reset-password?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`;
   return shellTemplate(
     'Reset Your Password',
     'Use the verification code below to reset your password.',
     `<p style="margin:0 0 12px; font-size:15px; line-height:1.6; color:#334155;">Use this code to reset your password. It expires in 30 minutes.</p>
-     <div style="display:inline-block; background:#0f172a; color:#ffffff; border-radius:10px; padding:10px 14px; font-size:20px; letter-spacing:4px; font-weight:700;">${code}</div>`
+     <div style="display:inline-block; background:#0f172a; color:#ffffff; border-radius:10px; padding:10px 14px; font-size:20px; letter-spacing:4px; font-weight:700;">${code}</div>
+     <p style="margin:18px 0 0; font-size:15px; color:#334155;">Or click the link below to reset directly:</p>
+     <a href="${resetLink}" style="display:inline-block; margin-top:10px; background:#C9A14A; color:#fff; text-decoration:none; padding:10px 18px; border-radius:8px; font-weight:600; font-size:16px;">Reset Password</a>`
   );
 }
 

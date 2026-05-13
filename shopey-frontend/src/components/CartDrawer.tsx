@@ -40,7 +40,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-900 line-clamp-1">{product.name}</p>
-                  <p className="text-sm text-[#C9A14A] font-semibold">KES {product.price.toLocaleString()}</p>
+                  <p className="text-sm text-[#C9A14A] font-semibold">KES {product.price.toLocaleString('en-US')}</p>
                   <div className="flex items-center gap-2 mt-1.5">
                     <button
                       onClick={() => updateQuantity(product.id, quantity - 1)}
@@ -67,7 +67,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
           <div className="mt-4 pt-4 border-t border-gray-100">
             <div className="flex justify-between mb-3 text-sm">
               <span className="text-slate-500">Subtotal</span>
-              <span className="font-semibold text-slate-900">KES {subtotal().toLocaleString()}</span>
+              <span className="font-semibold text-slate-900">KES {subtotal().toLocaleString('en-US')}</span>
             </div>
             <Button fullWidth onClick={handleCheckout}>Proceed to Checkout</Button>
           </div>

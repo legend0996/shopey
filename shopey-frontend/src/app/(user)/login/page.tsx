@@ -79,6 +79,9 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <Input label="Email" type="email" placeholder="john@example.com" error={errors.email?.message} {...register("email")} />
             <Input label="Password" type="password" placeholder="••••••••" error={errors.password?.message} {...register("password")} />
+            <div className="flex justify-end mb-2">
+              <Link href="/login/forgot-password" className="text-xs text-[#C9A14A] hover:underline">Forgot password?</Link>
+            </div>
             <Button type="submit" fullWidth loading={loading}>Sign In</Button>
           </form>
         </div>
